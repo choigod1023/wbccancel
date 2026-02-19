@@ -59,18 +59,39 @@ python wbc_monitor.py
 
 ### 이미지 빌드
 
+- **Windows (PowerShell / CMD)**  
+
 ```bash
 cd c:\Users\user\Documents\wbc
 docker build -t wbc-monitor .
 ```
 
-### 컨테이너 실행
+- **Linux / macOS / WSL**
 
 ```bash
-docker run -d ^
-  --name wbc-monitor ^
-  -e DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/여기에_본인_웹훅_URL" ^
-  -e WBC_INTERVAL=60 ^
+cd /path/to/wbc   # 예: /home/ubuntu/wbc
+docker build -t wbc-monitor .
+```
+
+### 컨테이너 실행
+
+- **Windows (PowerShell)^**
+
+```powershell
+docker run -d `
+  --name wbc-monitor `
+  -e DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/여기에_본인_웹훅_URL" `
+  -e WBC_INTERVAL=60 `
+  wbc-monitor
+```
+
+- **Linux / macOS / WSL**
+
+```bash
+docker run -d \
+  --name wbc-monitor \
+  -e DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/여기에_본인_웹훅_URL" \
+  -e WBC_INTERVAL=60 \
   wbc-monitor
 ```
 
@@ -79,12 +100,25 @@ docker run -d ^
 - `wbc_state.json`은 컨테이너 안 `/app` 디렉터리에 저장됩니다.  
   필요하다면 호스트에 저장하려고 할 때:
 
+- **Windows (PowerShell)**
+
+```powershell
+docker run -d `
+  --name wbc-monitor `
+  -e DISCORD_WEBHOOK_URL="웹훅_URL" `
+  -e WBC_INTERVAL=60 `
+  -v C:\Users\user\Documents\wbc-data:/app `
+  wbc-monitor
+```
+
+- **Linux / macOS / WSL**
+
 ```bash
-docker run -d ^
-  --name wbc-monitor ^
-  -e DISCORD_WEBHOOK_URL="웹훅_URL" ^
-  -e WBC_INTERVAL=60 ^
-  -v C:\Users\user\Documents\wbc-data:/app ^
+docker run -d \
+  --name wbc-monitor \
+  -e DISCORD_WEBHOOK_URL="웹훅_URL" \
+  -e WBC_INTERVAL=60 \
+  -v /home/ubuntu/wbc-data:/app \
   wbc-monitor
 ```
 
