@@ -21,7 +21,9 @@ except ImportError:
 # 설정
 BASE_URL = "https://tradead.tixplus.jp/wbc2026"
 STATE_FILE = Path(__file__).parent / "wbc_state.json"
-INTERVAL_SEC = int(os.environ.get("WBC_INTERVAL", "60"))  # 기본 1분
+# 체크 간격(초). 너무 짧으면 서버가 봇으로 인식해 빈 페이지/차단할 수 있음
+_raw_interval = int(os.environ.get("WBC_INTERVAL", "60"))
+INTERVAL_SEC = max(30, _raw_interval)  # 최소 30초
 DISCORD_WEBHOOK = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 # 한일전 / 한국 vs 대만 경기 ID
@@ -31,13 +33,23 @@ TARGET_CONCERT_IDS = {1519, 1520}
 PATTERN_COUNT = re.compile(r"(\d+)\s*件")
 
 
+# 요청이 봇으로 인식되면 빈 페이지/차단될 수 있으므로 브라우저와 비슷한 헤더 사용
+FETCH_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "ja,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+}
+
+
 def fetch_page():
     """페이지 HTML 가져오기. 반환: (status_code, html_text)"""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "ja,en;q=0.9",
-    }
-    r = requests.get(BASE_URL, headers=headers, timeout=15)
+    r = requests.get(BASE_URL, headers=FETCH_HEADERS, timeout=15)
     r.raise_for_status()
     return r.status_code, r.text
 
@@ -281,6 +293,8 @@ def main():
     print("WBC 2026 티켓 매수 건수 모니터 시작")
     print(f"  URL: {BASE_URL}")
     print(f"  체크 간격: {INTERVAL_SEC}초")
+    if _raw_interval < 30:
+        print(f"  [참고] WBC_INTERVAL이 30초 미만이어서 30초로 적용됩니다. 너무 짧으면 서버에서 빈 페이지/차단될 수 있습니다.")
     print(f"  Discord: {'설정됨' if DISCORD_WEBHOOK.strip() else '미설정'}")
     print("-" * 50)
     while True:
