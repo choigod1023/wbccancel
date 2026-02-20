@@ -32,39 +32,46 @@ PATTERN_COUNT = re.compile(r"(\d+)\s*件")
 
 
 def fetch_page():
-    """페이지 HTML 가져오기"""
+    """페이지 HTML 가져오기. 반환: (status_code, html_text)"""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "ja,en;q=0.9",
     }
     r = requests.get(BASE_URL, headers=headers, timeout=15)
     r.raise_for_status()
-    return r.text
+    return r.status_code, r.text
 
 
-def parse_counts(html_text: str) -> list[dict]:
+def parse_counts(html_text: str, debug: bool = False) -> tuple[list[dict], str]:
     """
     data-page JSON 에서 날짜·시간·매수 건수(listings_count) 추출.
-    반환: [ {"date": "2026-03-02", "time": "12:00", "count": 16}, ... ]
+    반환: (결과 리스트, 디버그 메시지)
     """
     if not BeautifulSoup:
-        return []
+        return [], "BeautifulSoup4가 설치되지 않았습니다. 'pip install beautifulsoup4' 실행 필요"
 
     soup = BeautifulSoup(html_text, "html.parser")
     app_div = soup.find("div", id="app")
-    if not app_div or "data-page" not in app_div.attrs:
-        return []
+    if not app_div:
+        return [], "div#app 요소를 찾을 수 없습니다"
+    if "data-page" not in app_div.attrs:
+        return [], "div#app에 data-page 속성이 없습니다"
 
     # HTML 엔티티(&quot; 등) 제거 후 JSON 파싱
     raw = app_div["data-page"]
     try:
         data_json = html.unescape(raw)
         data = json.loads(data_json)
-    except Exception:
-        return []
+    except json.JSONDecodeError as e:
+        return [], f"data-page JSON 파싱 실패: {e}. data-page 길이: {len(raw)}자"
+    except Exception as e:
+        return [], f"data-page 처리 중 오류: {e}"
 
     props = data.get("props", {})
     concerts = props.get("concerts", [])
+    
+    if not concerts:
+        return [], f"concerts 배열이 비어있습니다. props 키: {list(props.keys())}"
 
     result: list[dict] = []
     for c in concerts:
@@ -109,7 +116,7 @@ def parse_counts(html_text: str) -> list[dict]:
         if k not in seen_keys:
             seen_keys.add(k)
             unique.append(c)
-    return unique
+    return unique, ""
 
 
 def get_state() -> dict:
@@ -209,20 +216,52 @@ def send_discord(changes: list[tuple[dict, dict]], new_counts: list[dict]):
 
 def run_once():
     """한 번 조회 후 변경 여부 확인 및 알림"""
-    try:
-        html = fetch_page()
-    except Exception as e:
-        print(f"[오류] 페이지 조회 실패: {e}")
-        return
-    new_counts = parse_counts(html)
-    if not new_counts:
-        # 디버그를 위해 마지막 HTML을 파일로 저장
-        debug_file = Path(__file__).parent / "wbc_last.html"
+    html = None
+    status_code = None
+    for attempt in range(2):
         try:
-            with open(debug_file, "w", encoding="utf-8") as f:
-                f.write(html)
-            print("[경고] 매수 건수 항목을 찾지 못했습니다. 페이지 구조가 바뀌었을 수 있습니다.")
-            print(f"       최신 HTML을 '{debug_file.name}' 로 저장했으니 브라우저로 열어서 구조를 확인해 보세요.")
+            status_code, html = fetch_page()
+            break
+        except requests.HTTPError as e:
+            code = e.response.status_code if e.response is not None else "?"
+            print(f"[오류] 페이지 조회 실패 (시도 {attempt + 1}/2) — HTTP {code}: {e}")
+            if attempt == 0:
+                time.sleep(2)
+            else:
+                return
+        except Exception as e:
+            print(f"[오류] 페이지 조회 실패 (시도 {attempt + 1}/2): {e}")
+            if attempt == 0:
+                time.sleep(2)
+            else:
+                return
+    if not html:
+        return
+    new_counts, debug_msg = parse_counts(html)
+    if not new_counts:
+        # 디버그를 위해 마지막 HTML을 파일로 저장 (html/ 폴더에 저장해 브라우저에서 열기 쉽게)
+        html_dir = Path(__file__).parent / "html"
+        html_dir.mkdir(exist_ok=True)
+        debug_file = html_dir / "wbc_last.html"
+        try:
+            debug_file.write_text(html, encoding="utf-8")
+            print("[경고] 매수 건수 항목을 찾지 못했습니다.")
+            if status_code is not None:
+                print(f"       HTTP 상태 코드: {status_code}")
+            # debug_msg가 비어있어도 파싱 실패 원인을 추적할 수 있도록 상세 정보 출력
+            if debug_msg:
+                print(f"       원인: {debug_msg}")
+            else:
+                # 파싱은 성공했지만 결과가 비어있는 경우
+                print("       원인: 파싱은 성공했지만 결과 리스트가 비어있습니다.")
+                # HTML 구조 확인
+                if "data-page" in html:
+                    print("       [참고] HTML에 data-page 속성이 있습니다.")
+                    if 'div id="app"' in html:
+                        print("       [참고] div#app 요소도 있습니다. JSON 구조를 확인해보세요.")
+                else:
+                    print("       [참고] HTML에 data-page 속성이 없습니다.")
+            print(f"       응답 HTML을 '{debug_file}' 에 저장했습니다. 브라우저로 열어 구조를 확인해 보세요.")
         except Exception as e:
             print("[경고] 매수 건수 항목을 찾지 못했고, 디버그 HTML 저장에도 실패했습니다:", e)
         return
