@@ -47,11 +47,26 @@ FETCH_HEADERS = {
 }
 
 
+# 403 시 재시도: 대기 시간(초) 및 최대 재시도 횟수
+FETCH_403_WAIT_SEC = 10
+FETCH_403_MAX_RETRIES = 2
+
+
 def fetch_page():
-    """페이지 HTML 가져오기. 반환: (status_code, html_text)"""
-    r = requests.get(BASE_URL, headers=FETCH_HEADERS, timeout=15)
-    r.raise_for_status()
-    return r.status_code, r.text
+    """페이지 HTML 가져오기. 403이면 10초 대기 후 최대 2번 재시도. 반환: (status_code, html_text)"""
+    last_response = None
+    for attempt in range(FETCH_403_MAX_RETRIES + 1):
+        r = requests.get(BASE_URL, headers=FETCH_HEADERS, timeout=15)
+        last_response = r
+        if r.status_code == 403 and attempt < FETCH_403_MAX_RETRIES:
+            print(f"[403 Forbidden] {FETCH_403_WAIT_SEC}초 후 재시도 ({attempt + 1}/{FETCH_403_MAX_RETRIES + 1})")
+            time.sleep(FETCH_403_WAIT_SEC)
+            continue
+        r.raise_for_status()
+        return r.status_code, r.text
+    if last_response is not None:
+        last_response.raise_for_status()
+    return 403, ""
 
 
 def parse_counts(html_text: str, debug: bool = False) -> tuple[list[dict], str]:

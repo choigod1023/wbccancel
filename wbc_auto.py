@@ -143,11 +143,26 @@ def click_available_tickets(driver):
                 # h6 요소의 텍스트 확인
                 text = h6_element.text
 
-                # "取引完了"가 포함된 경우: 새로고침 후 continue (최대한 빠르게 재시도)
+                # "取引完了"가 포함된 경우: 제목·가격 정보와 함께 출력 후 새로고침
                 if "取引完了" in text:
-                    print("取引完了 — 페이지 새로고침 후 재시도")
+                    title_str = ""
+                    price_str = ""
+                    try:
+                        title_el = driver.find_element(By.XPATH, f'//*[@id="app"]/div/div/div[3]/div/div[{i}]/div/div[1]/div/div[1]/h6')
+                        title_str = (title_el.text or "").strip()
+                    except Exception:
+                        pass
+                    try:
+                        price_block = driver.find_element(By.XPATH, f'//*[@id="app"]/div/div/div[3]/div/div[{i}]/div/div[2]/div')
+                        price_str = (price_block.text or "").strip()
+                    except Exception:
+                        pass
+                    if title_str or price_str:
+                        print(f"取引完了 — 제목: {title_str} | {price_str} — 페이지 새로고침 후 재시도")
+                    else:
+                        print("取引完了 — 페이지 새로고침 후 재시도")
                     driver.refresh()
-                    time.sleep(0.3)  # 렌더링 최소 시간만 기다리고 바로 다시 시도
+                    time.sleep(0.3)
                     continue
 
                 # 그 외에는 클릭 (딜레이 최소화)
@@ -225,36 +240,26 @@ def complete_purchase_flow(driver, wait_sec=10):
         notify_windows("WBC Auto", "결제 플로우 완료.", timeout=10)
         notify_discord("WBC Auto — 결제 플로우 완료", "결제 단계가 정상적으로 완료되었습니다.", is_error=False)
     except Exception as e:
-        # 현재 페이지의 body 내용을 일부 함께 알림으로 전송 (예: 404 메시지 확인용)
-        body_snippet = ""
-        try:
-            try:
-                body_el = driver.find_element(By.TAG_NAME, "body")
-                body_text = (body_el.text or "").strip()
-            except Exception:
-                body_text = (driver.page_source or "")[:2000]
-            if body_text:
-                if len(body_text) > 800:
-                    body_snippet = body_text[:800] + "\n...[생략]..."
-                else:
-                    body_snippet = body_text
-        except Exception:
-            body_snippet = ""
-
-        base_msg = f"결제 플로우 중 오류: {e}"
-        if body_snippet:
-            full_msg = base_msg + "\n\n[페이지 내용 일부]\n" + body_snippet
-        else:
-            full_msg = base_msg
-
-        print(full_msg)
-        notify_windows("WBC Auto 오류", full_msg, timeout=20)
-        notify_discord("WBC Auto — 결제 플로우 오류", full_msg, is_error=True)
+        # 요청대로: 에러 메시지만 알림으로 전송
+        msg = f"결제 플로우 중 오류: {e}"
+        print(msg)
+        notify_windows("WBC Auto 오류", msg, timeout=15)
+        notify_discord("WBC Auto — 결제 플로우 오류", msg, is_error=True)
         raise
 
 
 # Main execution
 if __name__ == "__main__":
+    # listings/{id} 의 id 입력: 인자로 주거나 실행 후 입력
+    if len(sys.argv) >= 2:
+        listing_id = sys.argv[1].strip()
+    else:
+        listing_id = input("listings ID 입력 (예: 1519): ").strip()
+    if not listing_id:
+        print("listings ID가 비어 있습니다. 종료합니다.")
+        sys.exit(1)
+    listings_url = f"https://tradead.tixplus.jp/wbc2026/buy/bidding/listings/{listing_id}"
+
     # Chrome 드라이버 설정
     options = Options()
     options.add_argument("--start-maximized")
@@ -262,34 +267,21 @@ if __name__ == "__main__":
     
     try:
         # 웹사이트 열기 후 로그인 (한 번만)
-        driver.get("https://tradead.tixplus.jp/wbc2026/buy/bidding/listings/1519")
+        driver.get(listings_url)
         login(driver, "choigod10234@gmail.com", "jjang486")
 
         # 로그인 이후만 반복: 리스팅 이동 → 티켓 클릭 → 결제 플로우 (에러 나면 여기서만 재시도)
         while True:
             try:
-                driver.get("https://tradead.tixplus.jp/wbc2026/buy/bidding/listings/1519")
+                driver.get(listings_url)
                 click_available_tickets(driver)
                 complete_purchase_flow(driver)
                 break
             except Exception as e:
-                # 현재 페이지 body 일부 수집 후 Discord/Windows 알림 (404 등 확인용)
-                body_snippet = ""
-                try:
-                    try:
-                        body_el = driver.find_element(By.TAG_NAME, "body")
-                        body_text = (body_el.text or "").strip()
-                    except Exception:
-                        body_text = (driver.page_source or "")[:2000]
-                    if body_text:
-                        body_snippet = body_text[:800] + ("...[생략]..." if len(body_text) > 800 else "")
-                except Exception:
-                    pass
+                # 요청대로: 에러 메시지만 알려주고, 로그인 이후 단계만 재시도
                 err_msg = f"Execution failed: {e}. 로그인 이후 단계부터 재시도합니다."
-                if body_snippet:
-                    err_msg += "\n\n[페이지 내용 일부]\n" + body_snippet
                 print(err_msg)
-                notify_windows("WBC Auto 오류", err_msg[:500], timeout=15)
+                notify_windows("WBC Auto 오류", err_msg, timeout=10)
                 notify_discord("WBC Auto — 실행 오류", err_msg, is_error=True)
                 time.sleep(0.8)
     except Exception as e:
